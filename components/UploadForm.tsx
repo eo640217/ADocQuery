@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { upload } from "@vercel/blob/client";
 
 const MAX_FILES_PER_UPLOAD = 5;
 
@@ -60,12 +61,24 @@ export default function UploadForm({
       const uploadedDocuments: UploadedDocument[] = [];
 
       for (const file of files) {
-        const formData = new FormData();
-        formData.append("file", file);
+        const uploadedBlob = await upload(file.name, file, {
+          access: "public",
+          handleUploadUrl: "/api/blob",
+          multipart: true,
+        });
 
         const res = await fetch("/api/upload", {
           method: "POST",
-          body: formData,
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            blobUrl: uploadedBlob.url,
+            pathname: uploadedBlob.pathname,
+            fileName: file.name,
+            mimeType: file.type,
+            size: file.size,
+          }),
         });
 
         const data = await res.json();

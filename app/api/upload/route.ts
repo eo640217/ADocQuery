@@ -1,6 +1,5 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { put } from "@vercel/blob";
 
 import { getPath } from "pdf-parse/worker";
 import { PDFParse } from "pdf-parse";
@@ -8,6 +7,17 @@ import { ingestDocumentChunks } from "@/lib/ingest";
 import { checkRateLimit, getClientIp, readIntEnv } from "@/lib/demoGuards";
 
 PDFParse.setWorker(getPath());
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+type UploadBody = {
+  blobUrl?: string;
+  pathname?: string;
+  fileName?: string;
+  mimeType?: string;
+  size?: number;
+};
 
 export async function POST(req: Request) {
   try {
@@ -30,19 +40,27 @@ export async function POST(req: Request) {
       );
     }
 
-    const formData = await req.formData();
-    const file = formData.get("file") as File | null;
+    const body = (await req.json()) as UploadBody;
+    const blobUrl = body.blobUrl?.trim();
+    const pathname = body.pathname?.trim() || "";
+    const fileName = body.fileName?.trim() || pathname.split("/").pop() || "uploaded.pdf";
+    const mimeType = body.mimeType?.trim() || "application/pdf";
+    const fileSize = Number(body.size ?? 0);
 
-    if (!file) {
-      return NextResponse.json({ error: "No file uploaded." }, { status: 400 });
+    if (!blobUrl) {
+      return NextResponse.json({ error: "blobUrl is required." }, { status: 400 });
     }
 
-    if (file.type !== "application/pdf") {
+    if (mimeType !== "application/pdf") {
       return NextResponse.json({ error: "Only PDF files are allowed." }, { status: 400 });
     }
 
     const MAX_SIZE = 10 * 1024 * 1024;
-    if (file.size > MAX_SIZE) {
+    if (!Number.isFinite(fileSize) || fileSize <= 0) {
+      return NextResponse.json({ error: "Invalid file size." }, { status: 400 });
+    }
+
+    if (fileSize > MAX_SIZE) {
       return NextResponse.json(
         { error: "File too large. Max 10MB." },
         { status: 400 }
@@ -63,7 +81,7 @@ export async function POST(req: Request) {
     const existingByName = await db.document.findFirst({
       where: {
         originalName: {
-          equals: file.name,
+          equals: fileName,
           mode: "insensitive",
         },
       },
@@ -79,12 +97,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const blob = await put(file.name, file, {
-      access: "public",
-      addRandomSuffix: true,
-    });
-
-    const pdfResponse = await fetch(blob.url);
+    const pdfResponse = await fetch(blobUrl);
     if (!pdfResponse.ok) {
       return NextResponse.json(
         { error: "Failed to read uploaded file from Blob storage." },
@@ -114,10 +127,10 @@ export async function POST(req: Request) {
 
     const document = await db.document.create({
       data: {
-        originalName: file.name,
-        storagePath: blob.url,
-        mimeType: file.type,
-        size: file.size,
+        originalName: fileName,
+        storagePath: blobUrl,
+        mimeType,
+        size: fileSize,
         status: "PROCESSING",
         extractedText,
         pageCount,
@@ -134,8 +147,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       blob: {
-        url: blob.url,
-        pathname: blob.pathname,
+        url: blobUrl,
+        pathname,
       },
       document,
       chunkCount,
