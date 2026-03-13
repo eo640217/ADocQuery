@@ -78,25 +78,6 @@ export async function POST(req: Request) {
       );
     }
 
-    const existingByName = await db.document.findFirst({
-      where: {
-        originalName: {
-          equals: fileName,
-          mode: "insensitive",
-        },
-      },
-      select: { id: true },
-    });
-
-    if (existingByName) {
-      return NextResponse.json(
-        {
-          error: "A document with the same filename already exists.",
-        },
-        { status: 409 }
-      );
-    }
-
     const pdfResponse = await fetch(blobUrl);
     if (!pdfResponse.ok) {
       return NextResponse.json(
