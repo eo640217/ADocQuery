@@ -4,6 +4,8 @@ import { useState } from "react";
 
 type Source = {
   id: string;
+  documentId: string;
+  documentName?: string;
   chunkIndex: number;
   pageNumber?: number | null;
   contentPreview: string;
@@ -23,6 +25,8 @@ type AskBoxProps = {
 export default function AskBox({ documentId, documentName }: AskBoxProps) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
+  const [scope, setScope] = useState<"document" | "workspace">("document");
+  const [rewrittenQuery, setRewrittenQuery] = useState("");
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -34,6 +38,7 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
 
     setLoading(true);
     setAnswer("");
+    setRewrittenQuery("");
     setSources([]);
     setErrorMessage("");
 
@@ -47,6 +52,7 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
           documentId,
           question: trimmedQuestion,
           chatHistory: chatHistory.slice(-6),
+          scope,
         }),
       });
 
@@ -105,6 +111,10 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
 
             if (parsed.type === "sources") {
               setSources(parsed.sources || []);
+            }
+
+            if (parsed.type === "meta") {
+              setRewrittenQuery(parsed.rewrittenQuery || "");
             }
 
             if (parsed.type === "token") {
@@ -190,6 +200,35 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
         </div>
       )}
 
+      <div className="mb-4">
+        <p className="mb-2 text-sm font-semibold text-slate-700">Search scope</p>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setScope("document")}
+            className={`rounded-lg px-3 py-2 text-sm font-medium border ${
+              scope === "document"
+                ? "border-blue-600 bg-blue-50 text-blue-700"
+                : "border-slate-300 bg-white text-slate-700"
+            }`}
+          >
+            Current document
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setScope("workspace")}
+            className={`rounded-lg px-3 py-2 text-sm font-medium border ${
+              scope === "workspace"
+                ? "border-blue-600 bg-blue-50 text-blue-700"
+                : "border-slate-300 bg-white text-slate-700"
+            }`}
+          >
+            All documents
+          </button>
+        </div>
+      </div>
+
       <textarea
         value={question}
         onChange={(e) => setQuestion(e.target.value)}
@@ -219,6 +258,15 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
         </div>
       )}
 
+      {rewrittenQuery && (
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+            Retrieval Query
+          </p>
+          <p className="mt-1 text-sm text-amber-900">{rewrittenQuery}</p>
+        </div>
+      )}
+
       {(answer || loading) && (
         <div className="mt-8 rounded-lg border border-blue-200 bg-blue-50 p-4">
           <h3 className="mb-3 text-lg font-semibold text-blue-900">Latest Answer</h3>
@@ -242,7 +290,7 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
               >
                 <div className="mb-2 flex items-center justify-between">
                   <p className="text-sm font-semibold text-slate-900">
-                    Page {source.pageNumber ?? "?"} • Chunk {source.chunkIndex}
+                    {source.documentName ?? "Unknown document"} • Page {source.pageNumber ?? "?"} • Chunk {source.chunkIndex}
                   </p>
 
                   {source.distance !== undefined && source.distance !== null && (

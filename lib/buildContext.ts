@@ -2,6 +2,7 @@ type Chunk = {
   id: string;
   content: string;
   documentId: string;
+  documentName?: string;
   chunkIndex: number;
   pageNumber?: number | null;
   distance?: number | null;
@@ -13,7 +14,7 @@ export function buildContext(chunks: Chunk[], maxChars = 3000) {
   const parts: string[] = [];
 
   for (const chunk of chunks) {
-    const label = `[Page ${chunk.pageNumber ?? "?"}, Chunk ${chunk.chunkIndex}]`;
+    const label = `[Document: ${chunk.documentName ?? chunk.documentId} | Page ${chunk.pageNumber ?? "?"} | Chunk ${chunk.chunkIndex}]`;
     const text = `${label}\n${chunk.content}\n\n---\n\n`;
 
     if (total + text.length > maxChars) break;

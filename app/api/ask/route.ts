@@ -1,6 +1,9 @@
 import { retrieveRelevantChunks } from "@/lib/retrieve";
+import { retrieveRelevantChunksAcrossWorkspace } from "@/lib/retrieveWorkspace";
 import { openai } from "@/lib/openai";
 import { buildContext } from "@/lib/buildContext";
+import { rewriteQuery } from "@/lib/rewriteQuery";
+import { rerankChunks } from "@/lib/rerankChunks";
 
 const MAX_CONTEXT_LENGTH = 3000;
 
@@ -22,15 +25,16 @@ function formatChatHistory(chatHistory: ChatMessage[] = [], maxMessages = 6) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { documentId, question, chatHistory } = body as {
+    const { documentId, question, chatHistory, scope } = body as {
       documentId?: string;
       question?: string;
       chatHistory?: ChatMessage[];
+      scope?: "document" | "workspace";
     };
 
-    if (!documentId?.trim() || !question?.trim()) {
+    if (!question?.trim()) {
       return new Response(
-        JSON.stringify({ error: "documentId and question are required." }),
+        JSON.stringify({ error: "question is required." }),
         {
           status: 400,
           headers: { "Content-Type": "application/json" },
@@ -38,9 +42,24 @@ export async function POST(req: Request) {
       );
     }
 
-    const chunks = await retrieveRelevantChunks(documentId, question, 5);
+    if ((scope ?? "document") === "document" && !documentId?.trim()) {
+      return new Response(
+        JSON.stringify({ error: "documentId is required for document scope." }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
 
-    if (chunks.length === 0) {
+    const rewrittenQuery = await rewriteQuery(question, chatHistory || []);
+
+    const initialChunks =
+      (scope ?? "document") === "workspace"
+        ? await retrieveRelevantChunksAcrossWorkspace(rewrittenQuery, 8)
+        : await retrieveRelevantChunks(documentId!, rewrittenQuery, 8);
+
+    if (initialChunks.length === 0) {
       return new Response(
         JSON.stringify({
           answer: "I couldn’t find relevant contract text for that question.",
@@ -53,7 +72,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const { context, usedChunks } = buildContext(chunks, MAX_CONTEXT_LENGTH);
+    const rerankedChunks = await rerankChunks(question, initialChunks);
+    const finalChunks = rerankedChunks.slice(0, 5);
+
+    const { context, usedChunks } = buildContext(finalChunks, MAX_CONTEXT_LENGTH);
     const formattedHistory = formatChatHistory(chatHistory || []);
 
     const stream = await openai.responses.create({
@@ -65,10 +87,11 @@ export async function POST(req: Request) {
           content: `
 You are a contract analysis assistant.
 Answer the user's question using only the provided contract context and recent conversation history.
-Use the conversation history only to understand references like "it", "that clause", or follow-up questions.
+The context may come from one document or multiple documents.
+If multiple documents are relevant, clearly distinguish them.
 Do not make up facts or rely on outside knowledge.
 If the answer is not clearly supported by the context, say: "The contract text provided does not clearly answer that."
-When possible, mention the relevant page numbers from the context.
+When possible, mention document names and page numbers.
 Be precise and concise.
           `.trim(),
         },
@@ -77,6 +100,12 @@ Be precise and concise.
           content: `
 Recent conversation:
 ${formattedHistory || "No prior conversation."}
+
+Retrieval mode:
+${scope === "workspace" ? "All uploaded documents" : "Single selected document"}
+
+Rewritten retrieval query:
+${rewrittenQuery}
 
 Current question:
 ${question}
@@ -102,11 +131,18 @@ ${context}
           type: "sources",
           sources: usedChunks.map((chunk) => ({
             id: chunk.id,
+            documentId: chunk.documentId,
+            documentName: chunk.documentName,
             chunkIndex: chunk.chunkIndex,
             pageNumber: chunk.pageNumber,
             contentPreview: chunk.content.replace(/\s+/g, " ").slice(0, 200),
             distance: chunk.distance,
           })),
+        });
+
+        send({
+          type: "meta",
+          rewrittenQuery,
         });
 
         try {
