@@ -78,7 +78,6 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
     setErrorMessage("");
     setRewrittenQuery("");
     setQuestion("");
-    setChatHistory([]);
   }, [documentId, scope]);
 
   async function askQuestion() {
