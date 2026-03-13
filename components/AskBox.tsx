@@ -33,6 +33,11 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const currentlyViewingLabel =
     scope === "workspace" ? "All uploaded documents" : documentName;
+  const suggestedQuestions = [
+    "Which document mentions payment within 15 days?",
+    "Compare termination clauses across all uploaded contracts.",
+    "Summarize notice periods and renewal terms.",
+  ];
 
   useEffect(() => {
     setAnswer("");
@@ -170,24 +175,51 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm transition-shadow hover:shadow-md">
-      <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
-        <p className="text-sm text-blue-600">Currently viewing:</p>
-        <p className="text-lg font-semibold text-blue-900">{currentlyViewingLabel}</p>
+    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-sm transition-shadow hover:shadow-md">
+      <div className="mb-6 rounded-lg border border-blue-800 bg-blue-950/30 p-4">
+        <p className="text-sm text-blue-300">Currently viewing:</p>
+        <p className="text-lg font-semibold text-blue-100">{currentlyViewingLabel}</p>
       </div>
 
-      <h2 className="mb-2 text-2xl font-bold text-slate-900">
+      <h2 className="mb-2 text-2xl font-bold text-slate-100">
         Ask about the contract
       </h2>
-      <p className="mb-6 text-slate-600">
+      <p className="mb-6 text-slate-300">
         Ask follow-up questions and keep the conversation going
       </p>
 
+      <div className="mb-6">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Demo prompts
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {suggestedQuestions.map((prompt) => (
+            <button
+              key={prompt}
+              type="button"
+              onClick={() => setQuestion(prompt)}
+              className="rounded-full border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 transition-colors hover:bg-slate-700"
+            >
+              {prompt}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {chatHistory.length > 0 && (
-        <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700">
-            Conversation
-          </h3>
+        <div className="mb-6 rounded-xl border border-slate-800 bg-slate-800/50 p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
+              Conversation
+            </h3>
+            <button
+              type="button"
+              onClick={() => setChatHistory([])}
+              className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-medium text-slate-200 transition-colors hover:bg-slate-800"
+            >
+              Clear
+            </button>
+          </div>
 
           <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
             {chatHistory.map((message, index) => (
@@ -195,14 +227,14 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
                 key={index}
                 className={`rounded-lg p-3 ${
                   message.role === "user"
-                    ? "bg-white border border-slate-200"
-                    : "bg-blue-50 border border-blue-200"
+                    ? "bg-slate-900 border border-slate-700"
+                    : "bg-blue-950/30 border border-blue-800"
                 }`}
               >
-                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
                   {message.role === "user" ? "You" : "Assistant"}
                 </p>
-                <p className="whitespace-pre-wrap text-sm text-slate-800">
+                <p className="whitespace-pre-wrap text-sm text-slate-200">
                   {message.content}
                 </p>
               </div>
@@ -212,7 +244,7 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
       )}
 
       <div className="mb-4">
-        <p className="mb-2 text-sm font-semibold text-slate-700">Search scope</p>
+        <p className="mb-2 text-sm font-semibold text-slate-300">Search scope</p>
         <div className="flex gap-2">
           <button
             type="button"
@@ -220,7 +252,7 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
             className={`rounded-lg px-3 py-2 text-sm font-medium border ${
               scope === "document"
                 ? "border-blue-600 bg-blue-50 text-blue-700"
-                : "border-slate-300 bg-white text-slate-700"
+                : "border-slate-700 bg-slate-900 text-slate-200"
             }`}
           >
             Current document
@@ -232,19 +264,24 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
             className={`rounded-lg px-3 py-2 text-sm font-medium border ${
               scope === "workspace"
                 ? "border-blue-600 bg-blue-50 text-blue-700"
-                : "border-slate-300 bg-white text-slate-700"
+                : "border-slate-700 bg-slate-900 text-slate-200"
             }`}
           >
             All documents
           </button>
         </div>
+        <p className="mt-2 text-xs text-slate-400">
+          {scope === "workspace"
+            ? "Workspace mode is best for cross-document comparisons."
+            : "Document mode focuses answers on the selected file only."}
+        </p>
       </div>
 
       <textarea
         value={question}
         onChange={(e) => setQuestion(e.target.value)}
         placeholder="Ask something about the contract..."
-        className="mb-4 w-full rounded-lg border border-slate-300 bg-slate-50 p-3 font-medium text-slate-900 placeholder-slate-500 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none"
+        className="mb-4 w-full rounded-lg border border-slate-700 bg-slate-950 p-3 font-medium text-slate-100 placeholder-slate-500 transition-colors focus:border-blue-500 focus:bg-slate-900 focus:outline-none"
         rows={4}
       />
 
@@ -264,24 +301,35 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
       </button>
 
       {errorMessage && (
-        <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">
+        <div className="mt-4 rounded-lg border border-red-800 bg-red-950/30 p-3 text-sm text-red-200">
           {errorMessage}
         </div>
       )}
 
       {rewrittenQuery && (
-        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+        <div className="mt-4 rounded-lg border border-amber-700 bg-amber-950/30 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-300">
             Retrieval Query
           </p>
-          <p className="mt-1 text-sm text-amber-900">{rewrittenQuery}</p>
+          <p className="mt-1 text-sm text-amber-100">{rewrittenQuery}</p>
         </div>
       )}
 
       {(answer || loading) && (
-        <div className="mt-8 rounded-lg border border-blue-200 bg-blue-50 p-4">
-          <h3 className="mb-3 text-lg font-semibold text-blue-900">Latest Answer</h3>
-          <p className="whitespace-pre-wrap leading-relaxed text-blue-900">
+        <div className="mt-8 rounded-lg border border-blue-800 bg-blue-950/30 p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h3 className="text-lg font-semibold text-blue-100">Latest Answer</h3>
+            {answer && (
+              <button
+                type="button"
+                onClick={() => navigator.clipboard.writeText(answer)}
+                className="rounded-md border border-blue-700 bg-blue-950/50 px-2 py-1 text-xs font-semibold text-blue-100 transition-colors hover:bg-blue-900"
+              >
+                Copy
+              </button>
+            )}
+          </div>
+          <p className="whitespace-pre-wrap leading-relaxed text-blue-100">
             {answer || (loading ? "Thinking..." : "")}
           </p>
         </div>
@@ -289,7 +337,7 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
 
       {sources.length > 0 && (
         <div className="mt-8">
-          <h3 className="mb-4 text-lg font-semibold text-slate-900">
+          <h3 className="mb-4 text-lg font-semibold text-slate-100">
             Sources ({sources.length})
           </h3>
 
@@ -297,21 +345,21 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
             {sources.map((source) => (
               <div
                 key={source.id}
-                className="rounded-lg border border-slate-200 bg-slate-50 p-4 transition-colors hover:bg-slate-100"
+                className="rounded-lg border border-slate-800 bg-slate-800/50 p-4 transition-colors hover:bg-slate-800"
               >
                 <div className="mb-2 flex items-center justify-between">
-                  <p className="text-sm font-semibold text-slate-900">
+                  <p className="text-sm font-semibold text-slate-100">
                     {source.documentName ?? "Unknown document"} • Page {source.pageNumber ?? "?"} • Chunk {source.chunkIndex}
                   </p>
 
                   {source.distance !== undefined && source.distance !== null && (
-                    <span className="inline-block rounded-full bg-slate-200 px-2 py-1 text-xs font-medium text-slate-700">
+                    <span className="inline-block rounded-full bg-slate-700 px-2 py-1 text-xs font-medium text-slate-100">
                       Relevance: {(1 - source.distance).toFixed(2)}
                     </span>
                   )}
                 </div>
 
-                <p className="text-sm leading-relaxed text-slate-600">
+                <p className="text-sm leading-relaxed text-slate-300">
                   {source.contentPreview}
                 </p>
               </div>

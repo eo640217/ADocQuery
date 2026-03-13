@@ -4,6 +4,7 @@ import { openai } from "@/lib/openai";
 import { buildContext } from "@/lib/buildContext";
 import { rewriteQuery } from "@/lib/rewriteQuery";
 import { rerankChunks } from "@/lib/rerankChunks";
+import { checkRateLimit, getClientIp, readIntEnv } from "@/lib/demoGuards";
 
 const MAX_CONTEXT_LENGTH = 3000;
 
@@ -24,6 +25,26 @@ function formatChatHistory(chatHistory: ChatMessage[] = [], maxMessages = 6) {
 
 export async function POST(req: Request) {
   try {
+    const ip = getClientIp(req);
+    const askLimit = readIntEnv("DEMO_ASKS_PER_WINDOW", 40);
+    const askWindowMs = readIntEnv("DEMO_ASK_WINDOW_MS", 10 * 60 * 1000);
+
+    const askRate = checkRateLimit(`ask:${ip}`, askLimit, askWindowMs);
+    if (!askRate.ok) {
+      return new Response(
+        JSON.stringify({
+          error: `Question rate limit exceeded. Try again in ${askRate.retryAfterSeconds}s.`,
+        }),
+        {
+          status: 429,
+          headers: {
+            "Content-Type": "application/json",
+            "Retry-After": String(askRate.retryAfterSeconds),
+          },
+        }
+      );
+    }
+
     const body = await req.json();
     const { documentId, question, chatHistory, scope } = body as {
       documentId?: string;
@@ -35,6 +56,19 @@ export async function POST(req: Request) {
     if (!question?.trim()) {
       return new Response(
         JSON.stringify({ error: "question is required." }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const maxQuestionLength = readIntEnv("DEMO_MAX_QUESTION_LENGTH", 600);
+    if (question.trim().length > maxQuestionLength) {
+      return new Response(
+        JSON.stringify({
+          error: `Question is too long for this demo (max ${maxQuestionLength} characters).`,
+        }),
         {
           status: 400,
           headers: { "Content-Type": "application/json" },

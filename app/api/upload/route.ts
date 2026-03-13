@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { mkdir, writeFile } from "fs/promises";
+import { mkdir, unlink, writeFile } from "fs/promises";
 import { NextResponse } from "next/server";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
@@ -8,11 +8,31 @@ import fs from "fs";
 import { getPath } from "pdf-parse/worker";
 import { PDFParse } from "pdf-parse";
 import { ingestDocumentChunks } from "@/lib/ingest";
+import { checkRateLimit, getClientIp, readIntEnv } from "@/lib/demoGuards";
 
 PDFParse.setWorker(getPath());
 
 export async function POST(req: Request) {
   try {
+    const ip = getClientIp(req);
+    const uploadLimit = readIntEnv("DEMO_UPLOADS_PER_WINDOW", 5);
+    const uploadWindowMs = readIntEnv("DEMO_UPLOAD_WINDOW_MS", 10 * 60 * 1000);
+
+    const uploadRate = checkRateLimit(`upload:${ip}`, uploadLimit, uploadWindowMs);
+    if (!uploadRate.ok) {
+      return NextResponse.json(
+        {
+          error: `Upload rate limit exceeded. Try again in ${uploadRate.retryAfterSeconds}s.`,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(uploadRate.retryAfterSeconds),
+          },
+        }
+      );
+    }
+
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
 
@@ -29,6 +49,36 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: "File too large. Max 10MB." },
         { status: 400 }
+      );
+    }
+
+    const maxDocuments = readIntEnv("DEMO_MAX_DOCUMENTS", 100);
+    const documentCount = await db.document.count();
+    if (documentCount >= maxDocuments) {
+      return NextResponse.json(
+        {
+          error: `Upload limit reached for this demo (${maxDocuments} documents). Please clean up old files.`,
+        },
+        { status: 403 }
+      );
+    }
+
+    const existingByName = await db.document.findFirst({
+      where: {
+        originalName: {
+          equals: file.name,
+          mode: "insensitive",
+        },
+      },
+      select: { id: true },
+    });
+
+    if (existingByName) {
+      return NextResponse.json(
+        {
+          error: "A document with the same filename already exists.",
+        },
+        { status: 409 }
       );
     }
 
@@ -49,6 +99,17 @@ export async function POST(req: Request) {
 
     const extractedText = result.text;
     const pageCount = result.total;
+
+    const maxExtractedChars = readIntEnv("DEMO_MAX_EXTRACTED_CHARS", 300000);
+    if (extractedText.length > maxExtractedChars) {
+      await unlink(filePath).catch(() => undefined);
+      return NextResponse.json(
+        {
+          error: `PDF text is too large for this demo (max ${maxExtractedChars} characters).`,
+        },
+        { status: 400 }
+      );
+    }
 
     await parser.destroy();
 
