@@ -1,9 +1,6 @@
 import { db } from "@/lib/db";
-import { mkdir, unlink, writeFile } from "fs/promises";
 import { NextResponse } from "next/server";
-import path from "path";
-import { v4 as uuidv4 } from "uuid";
-import fs from "fs";
+import { put } from "@vercel/blob";
 
 import { getPath } from "pdf-parse/worker";
 import { PDFParse } from "pdf-parse";
@@ -82,19 +79,21 @@ export async function POST(req: Request) {
       );
     }
 
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+    const blob = await put(file.name, file, {
+      access: "public",
+      addRandomSuffix: true,
+    });
 
-    const uploadsDir = path.join(process.cwd(), "uploads");
-    await mkdir(uploadsDir, { recursive: true });
+    const pdfResponse = await fetch(blob.url);
+    if (!pdfResponse.ok) {
+      return NextResponse.json(
+        { error: "Failed to read uploaded file from Blob storage." },
+        { status: 502 }
+      );
+    }
 
-    const fileName = `${uuidv4()}-${file.name}`;
-    const filePath = path.join(uploadsDir, fileName);
-
-    await writeFile(filePath, buffer);
-
-    const dataBuffer = fs.readFileSync(filePath);
-    const parser = new PDFParse({ data: dataBuffer });
+    const arrayBuffer = await pdfResponse.arrayBuffer();
+    const parser = new PDFParse({ data: Buffer.from(arrayBuffer) });
     const result = await parser.getText();
 
     const extractedText = result.text;
@@ -102,7 +101,6 @@ export async function POST(req: Request) {
 
     const maxExtractedChars = readIntEnv("DEMO_MAX_EXTRACTED_CHARS", 300000);
     if (extractedText.length > maxExtractedChars) {
-      await unlink(filePath).catch(() => undefined);
       return NextResponse.json(
         {
           error: `PDF text is too large for this demo (max ${maxExtractedChars} characters).`,
@@ -117,7 +115,7 @@ export async function POST(req: Request) {
     const document = await db.document.create({
       data: {
         originalName: file.name,
-        storagePath: filePath,
+        storagePath: blob.url,
         mimeType: file.type,
         size: file.size,
         status: "PROCESSING",
@@ -135,6 +133,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
+      blob: {
+        url: blob.url,
+        pathname: blob.pathname,
+      },
       document,
       chunkCount,
     });

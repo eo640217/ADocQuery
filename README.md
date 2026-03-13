@@ -45,6 +45,7 @@ These checks are enforced on the backend and do not depend on client behavior.
 - TypeScript
 - Prisma
 - Postgres + pgvector
+- Vercel Blob
 - OpenAI Responses API
 
 ## RAG Flow
@@ -69,6 +70,7 @@ npm install
 ```bash
 DATABASE_URL="..."
 OPENAI_API_KEY="..."
+BLOB_READ_WRITE_TOKEN="..."
 
 # Optional demo guardrails
 DEMO_UPLOADS_PER_WINDOW="5"
