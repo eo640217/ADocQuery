@@ -29,6 +29,8 @@ export async function rewriteQuery(
         content: `
         You rewrite follow-up questions into strong standalone retrieval queries for a contract RAG system.
         Use recent conversation only to resolve references like "it", "they", "that clause", or "this section".
+Preserve the latest user question's main intent and keywords.
+If the latest question is a new topic, do not carry over older topics.
         Return only the rewritten query text.
         Do not answer the question.
         Keep it concise and optimized for semantic document retrieval.

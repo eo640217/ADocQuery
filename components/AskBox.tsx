@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Source = {
   id: string;
@@ -31,6 +31,17 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const currentlyViewingLabel =
+    scope === "workspace" ? "All uploaded documents" : documentName;
+
+  useEffect(() => {
+    setAnswer("");
+    setSources([]);
+    setErrorMessage("");
+    setRewrittenQuery("");
+    setQuestion("");
+    setChatHistory([]);
+  }, [documentId, scope]);
 
   async function askQuestion() {
     const trimmedQuestion = question.trim();
@@ -162,7 +173,7 @@ export default function AskBox({ documentId, documentName }: AskBoxProps) {
     <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm transition-shadow hover:shadow-md">
       <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
         <p className="text-sm text-blue-600">Currently viewing:</p>
-        <p className="text-lg font-semibold text-blue-900">{documentName}</p>
+        <p className="text-lg font-semibold text-blue-900">{currentlyViewingLabel}</p>
       </div>
 
       <h2 className="mb-2 text-2xl font-bold text-slate-900">
