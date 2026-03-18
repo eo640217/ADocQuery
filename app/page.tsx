@@ -1,12 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import UploadForm from "@/components/UploadForm";
 import AskBox from "@/components/AskBox";
 
 type UploadedDocument = {
   id: string;
   name: string;
+  status?: string;
+  indexedChunkCount?: number;
+  chunkCount?: number;
 };
 
 export default function HomePage() {
@@ -16,6 +19,54 @@ export default function HomePage() {
 
   const activeDocument =
     documents.find((doc) => doc.id === activeDocumentId) || null;
+
+  useEffect(() => {
+    const indexingDocs = documents.filter(
+      (doc) => doc.status === "PROCESSING" || doc.status === "PARTIALLY_INDEXED"
+    );
+
+    if (indexingDocs.length === 0) {
+      return;
+    }
+
+    const poll = async () => {
+      try {
+        const updates = await Promise.all(
+          indexingDocs.map(async (doc) => {
+            const res = await fetch(`/api/document/${doc.id}`);
+            if (!res.ok) return null;
+            const data = await res.json();
+            return {
+              id: doc.id,
+              status: data.document?.status as string | undefined,
+              indexedChunkCount: data.indexedChunkCount as number | undefined,
+              chunkCount: data.chunkCount as number | undefined,
+            };
+          })
+        );
+
+        setDocuments((prev) =>
+          prev.map((doc) => {
+            const update = updates.find((item) => item?.id === doc.id);
+            if (!update) return doc;
+            return {
+              ...doc,
+              status: update.status ?? doc.status,
+              indexedChunkCount: update.indexedChunkCount ?? doc.indexedChunkCount,
+              chunkCount: update.chunkCount ?? doc.chunkCount,
+            };
+          })
+        );
+      } catch (error) {
+        console.error("Failed to poll document status:", error);
+      }
+    };
+
+    const timer = setInterval(poll, 2500);
+    void poll();
+
+    return () => clearInterval(timer);
+  }, [documents]);
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 md:p-12">
@@ -113,7 +164,32 @@ export default function HomePage() {
                         : "border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700"
                     }`}
                   >
-                    {doc.name}
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="truncate">{doc.name}</span>
+                      {doc.status === "PARTIALLY_INDEXED" && (
+                        <span className="shrink-0 rounded-full border border-amber-700 bg-amber-950/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+                          Indexing
+                        </span>
+                      )}
+                      {doc.status === "PROCESSED" && (
+                        <span className="shrink-0 rounded-full border border-emerald-700 bg-emerald-950/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
+                          Ready
+                        </span>
+                      )}
+                      {doc.status === "FAILED" && (
+                        <span className="shrink-0 rounded-full border border-red-700 bg-red-950/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-red-300">
+                          Failed
+                        </span>
+                      )}
+                    </div>
+                    {(doc.status === "PARTIALLY_INDEXED" || doc.status === "PROCESSED") &&
+                      typeof doc.indexedChunkCount === "number" &&
+                      typeof doc.chunkCount === "number" &&
+                      doc.chunkCount > 0 && (
+                        <p className="mt-1 text-xs text-slate-400">
+                          Search is getting ready: {doc.indexedChunkCount} of {doc.chunkCount} sections processed
+                        </p>
+                      )}
                   </button>
                 ))}
               </div>

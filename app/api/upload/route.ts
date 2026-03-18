@@ -3,13 +3,18 @@ import { NextResponse } from "next/server";
 
 import { getPath } from "pdf-parse/worker";
 import { PDFParse } from "pdf-parse";
-import { ingestDocumentChunks } from "@/lib/ingest";
+import { ingestDocumentChunksProgressive } from "@/lib/ingest";
 import { checkRateLimit, getClientIp, readIntEnv } from "@/lib/demoGuards";
 
 PDFParse.setWorker(getPath());
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+
+const DOC_STATUS_PROCESSING = "PROCESSING";
+const DOC_STATUS_PARTIAL = "PARTIALLY_INDEXED";
+const DOC_STATUS_PROCESSED = "PROCESSED";
+const DOC_STATUS_FAILED = "FAILED";
 
 type UploadBody = {
   blobUrl?: string;
@@ -112,18 +117,52 @@ export async function POST(req: Request) {
         storagePath: blobUrl,
         mimeType,
         size: fileSize,
-        status: "PROCESSING",
+        status: DOC_STATUS_PROCESSING,
         extractedText,
         pageCount,
       },
     });
 
-    const chunkCount = await ingestDocumentChunks(document.id, extractedText, pageCount);
+    const progressive = await ingestDocumentChunksProgressive(
+      document.id,
+      extractedText,
+      pageCount,
+      { initialBatches: 1 }
+    );
 
-    await db.document.update({
+    const hasRemainingIndexing = progressive.indexedChunkCount < progressive.chunkCount;
+
+    const updatedDocument = await db.document.update({
       where: { id: document.id },
-      data: { status: "PROCESSED" },
+      data: {
+        status: hasRemainingIndexing ? DOC_STATUS_PARTIAL : DOC_STATUS_PROCESSED,
+      },
+      select: {
+        id: true,
+        originalName: true,
+        status: true,
+        pageCount: true,
+        createdAt: true,
+      },
     });
+
+    if (hasRemainingIndexing) {
+      void progressive
+        .continueIndexing()
+        .then(async () => {
+          await db.document.update({
+            where: { id: document.id },
+            data: { status: DOC_STATUS_PROCESSED },
+          });
+        })
+        .catch(async (ingestError) => {
+          console.error("Background indexing failed:", ingestError);
+          await db.document.update({
+            where: { id: document.id },
+            data: { status: DOC_STATUS_FAILED },
+          });
+        });
+    }
 
     return NextResponse.json({
       success: true,
@@ -131,8 +170,10 @@ export async function POST(req: Request) {
         url: blobUrl,
         pathname,
       },
-      document,
-      chunkCount,
+      document: updatedDocument,
+      chunkCount: progressive.chunkCount,
+      indexedChunkCount: progressive.indexedChunkCount,
+      indexingInBackground: hasRemainingIndexing,
     });
 
   } catch (error) {

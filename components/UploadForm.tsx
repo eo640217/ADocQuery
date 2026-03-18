@@ -4,10 +4,14 @@ import { useState } from "react";
 import { upload } from "@vercel/blob/client";
 
 const MAX_FILES_PER_UPLOAD = 5;
+const MAX_PARALLEL_UPLOADS = 2;
 
 type UploadedDocument = {
   id: string;
   name: string;
+  status?: string;
+  indexedChunkCount?: number;
+  chunkCount?: number;
 };
 
 type UploadFormProps = {
@@ -59,13 +63,20 @@ export default function UploadForm({
       setMessage("");
 
       const uploadedDocuments: UploadedDocument[] = [];
+      const failedUploads: string[] = [];
+      const queue = [...files];
+      let completed = 0;
 
-      for (const file of files) {
+      const processFile = async (file: File) => {
+        setMessage(`Uploading ${file.name} (${completed + 1}/${files.length})...`);
+
         const uploadedBlob = await upload(file.name, file, {
           access: "public",
           handleUploadUrl: "/api/blob",
           multipart: true,
         });
+
+        setMessage(`Processing ${file.name} (${completed + 1}/${files.length})...`);
 
         const res = await fetch("/api/upload", {
           method: "POST",
@@ -84,25 +95,58 @@ export default function UploadForm({
         const data = await res.json();
 
         if (!res.ok) {
-          throw new Error(
-            data.error || `Upload failed for ${file.name}`
-          );
+          throw new Error(data.error || `Upload failed for ${file.name}`);
         }
 
         uploadedDocuments.push({
           id: data.document.id,
           name: data.document.originalName,
+          status: data.document.status,
+          indexedChunkCount: data.indexedChunkCount,
+          chunkCount: data.chunkCount,
         });
-      }
+      };
 
-      setMessage(
-        `Uploaded successfully: ${uploadedDocuments.length} document${
-          uploadedDocuments.length > 1 ? "s" : ""
-        }.`
+      const workers = Array.from(
+        { length: Math.min(MAX_PARALLEL_UPLOADS, queue.length) },
+        async () => {
+          while (queue.length > 0) {
+            const file = queue.shift();
+            if (!file) break;
+
+            try {
+              await processFile(file);
+            } catch (error) {
+              failedUploads.push(
+                error instanceof Error ? error.message : `Upload failed for ${file.name}`
+              );
+            } finally {
+              completed += 1;
+              setMessage(`Processed ${completed}/${files.length} file(s)...`);
+            }
+          }
+        }
       );
 
+      await Promise.all(workers);
+
+      if (uploadedDocuments.length > 0) {
+        onUploadSuccess(uploadedDocuments);
+      }
+
+      if (failedUploads.length > 0) {
+        setMessage(
+          `Uploaded ${uploadedDocuments.length}/${files.length}. First error: ${failedUploads[0]}`
+        );
+      } else {
+        setMessage(
+          `Uploaded successfully: ${uploadedDocuments.length} document${
+            uploadedDocuments.length > 1 ? "s" : ""
+          }.`
+        );
+      }
+
       setFiles([]);
-      onUploadSuccess(uploadedDocuments);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Something went wrong");
     } finally {
