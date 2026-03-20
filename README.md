@@ -1,6 +1,6 @@
-# contract-reader
+# DOCQUERY AI
 
-Contract Reader is a legal document Q&A app that lets you upload contract PDFs and ask grounded questions with page-level citations.
+DOCQUERY AI is a legal document Q&A app that lets you upload contract PDFs and ask grounded questions with page-level citations.
 
 It supports two retrieval scopes:
 
