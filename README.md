@@ -1,78 +1,90 @@
-# ADocQuery: Multi-Document Contract RAG Assistant
+# contract-reader
 
-ADocQuery is a portfolio-ready legal-tech demo that lets users upload contract PDFs and ask grounded questions with citations.
+Contract Reader is a legal document Q&A app that lets you upload contract PDFs and ask grounded questions with page-level citations.
 
-It supports both:
-- `document` mode: retrieval from one selected contract
-- `workspace` mode: retrieval across all uploaded contracts for comparisons
+It supports two retrieval scopes:
 
-## Why This Project Is Strong For A Portfolio
+- `document`: search the currently selected file
+- `workspace`: search across all uploaded files for comparison questions
 
-- Demonstrates practical Retrieval-Augmented Generation (RAG), not just chat UI.
-- Uses query rewriting + reranking to improve retrieval quality.
-- Streams answers in real-time and returns source chunks with page metadata.
-- Includes explainability signals, including the rewritten retrieval query.
-- Shows product decisions in UX: scope selection, duplicate upload protection, and upload constraints.
+## Why I Built This
 
-## Core Features
+I built this after a purchase deal left me with a stack of contract documents and a lot of legal questions before speaking with my lawyer.
 
-- Multi-PDF upload with duplicate filename blocking
-- Maximum 5 files per upload attempt
-- Remove selected files before upload
-- Scope-aware retrieval (current document vs all documents)
-- Query rewrite for conversational follow-ups
-- LLM reranking of retrieved chunks
-- Source citations with document name, page, and chunk index
-- Streaming answer tokens via Server-Sent Events (SSE)
-- Public-demo abuse safeguards (rate limits, upload caps, and server-side validation)
+I wanted a faster way to find the exact clauses I cared about, like payment deadlines, renewal terms, cancellation windows, and liability language, without manually scanning every page first.
 
-## Public Demo Safeguards
+This project became my way to prototype a practical pre-review assistant: something that helps me ask better, more specific questions when I do meet with legal counsel.
 
-Because this demo uses a shared database, the API now includes guardrails:
+## Features
 
-- Per-IP upload rate limiting
-- Per-IP question rate limiting
-- Global maximum number of documents in the database
-- Server-side duplicate filename blocking
-- Maximum extracted PDF text length to control embedding spend
-- Maximum question length to reduce prompt abuse
-
-These checks are enforced on the backend and do not depend on client behavior.
+- Multi-file PDF upload (up to 5 files per upload action)
+- Duplicate file-name checks in UI and API flow
+- Progressive indexing with document status polling
+- Query rewrite for follow-up questions
+- Hybrid retrieval + reranking before generation
+- Streaming answers over Server-Sent Events (SSE)
+- Source evidence with document name, chunk index, and page number
+- Demo guardrails (per-IP rate limits, max docs, max input sizes)
 
 ## Tech Stack
 
-- Next.js App Router
-- TypeScript
-- Prisma
-- Postgres + pgvector
-- Vercel Blob
+- Next.js (App Router)
+- React + TypeScript
+- Prisma + PostgreSQL
+- `pgvector` for embeddings
 - OpenAI Responses API
+- Vercel Blob for uploads
 
-## RAG Flow
+## How It Works
 
-1. User asks a question.
-2. `rewriteQuery` converts follow-up phrasing into a standalone retrieval query.
-3. System retrieves top chunks from selected scope (`document` or `workspace`).
-4. `rerankChunks` reorders chunks using an LLM relevance pass.
-5. `buildContext` assembles bounded context with document/page labels.
-6. Assistant streams a grounded answer and emits source metadata.
+1. User uploads a PDF through Vercel Blob.
+2. API extracts PDF text and stores a `Document` record.
+3. Text is chunked and indexed progressively.
+4. Ask flow rewrites the question, retrieves chunks, reranks them, then builds context.
+5. Answer is streamed token-by-token with separate `sources` and `meta` events.
 
-## Local Setup
+## Project Structure
 
-1. Install dependencies:
-
-```bash
-npm install
+```text
+app/
+	api/
+		ask/route.ts          # Question endpoint (SSE streaming)
+		blob/route.ts         # Vercel Blob upload token endpoint
+		document/[id]/route.ts# Document indexing status endpoint
+		upload/route.ts       # Parse + ingest uploaded PDF
+components/
+	AskBox.tsx              # Chat UI and streamed answer handling
+	UploadForm.tsx          # Multi-file uploader
+lib/
+	ingest.ts               # Chunking + indexing orchestration
+	retrieve.ts             # Document-scope retrieval
+	retrieveWorkspace.ts    # Workspace-scope retrieval
+	rerankChunks.ts         # LLM reranking step
+	rewriteQuery.ts         # Follow-up question rewriting
+	buildContext.ts         # Context assembly and truncation
+prisma/
+	schema.prisma           # Data model
+	migrations/             # DB migrations (including pgvector setup)
 ```
 
-2. Create `.env` with required values:
+## Prerequisites
 
-```bash
-DATABASE_URL="..."
+- Node.js 20+
+- PostgreSQL database
+- `pgvector` enabled in your DB
+- OpenAI API key
+- Vercel Blob token
+
+## Environment Variables
+
+Create a `.env` file in the project root:
+
+```env
+DATABASE_URL="postgresql://..."
 OPENAI_API_KEY="..."
 BLOB_READ_WRITE_TOKEN="..."
 
-# Optional demo guardrails
+# Optional demo guardrails (defaults shown)
 DEMO_UPLOADS_PER_WINDOW="5"
 DEMO_UPLOAD_WINDOW_MS="600000"
 DEMO_ASKS_PER_WINDOW="40"
@@ -82,13 +94,21 @@ DEMO_MAX_EXTRACTED_CHARS="300000"
 DEMO_MAX_QUESTION_LENGTH="600"
 ```
 
-3. Run migrations:
+## Local Development
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Apply migrations:
 
 ```bash
 npx prisma migrate deploy
 ```
 
-4. Start dev server:
+Run development server:
 
 ```bash
 npm run dev
@@ -96,21 +116,93 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-## Recommended Demo Script (2-3 minutes)
+## API Overview
 
-1. Upload 2-3 contract PDFs.
-2. Ask in `document` scope: `Summarize termination and notice requirements.`
-3. Switch to `workspace` scope and ask: `Which document mentions payment within 15 days?`
-4. Ask a comparison question: `Compare renewal clauses across all uploaded documents.`
-5. Highlight:
-	- rewritten retrieval query
-	- source cards with document/page citations
-	- streamed response behavior
+### `POST /api/blob`
 
-## High-Impact Future Enhancements
+Returns a Vercel Blob upload token and enforces PDF-only uploads up to 10MB.
 
-- Side-by-side diff view for clause comparisons
-- Source highlighting in PDF preview
-- Evaluation harness for retrieval/answer quality
-- Role-based auth and workspace persistence
+### `POST /api/upload`
+
+Body:
+
+```json
+{
+	"blobUrl": "https://...",
+	"pathname": "...",
+	"fileName": "contract.pdf",
+	"mimeType": "application/pdf",
+	"size": 12345
+}
+```
+
+Behavior:
+
+- Validates file type/size
+- Extracts PDF text
+- Creates `Document`
+- Indexes chunks progressively
+- Returns indexing status and counts
+
+### `GET /api/document/:id`
+
+Returns document metadata and indexing progress:
+
+```json
+{
+	"document": {
+		"id": "...",
+		"originalName": "contract.pdf",
+		"status": "PARTIALLY_INDEXED"
+	},
+	"chunkCount": 120,
+	"indexedChunkCount": 45
+}
+```
+
+### `POST /api/ask`
+
+Body:
+
+```json
+{
+	"documentId": "...",
+	"question": "What are termination notice requirements?",
+	"chatHistory": [{ "role": "user", "content": "..." }],
+	"scope": "document"
+}
+```
+
+Returns SSE stream with events:
+
+- `sources`
+- `meta` (includes rewritten query)
+- `token`
+- `done`
+- `error`
+
+## Document Status Values
+
+- `PROCESSING`
+- `PARTIALLY_INDEXED`
+- `PROCESSED`
+- `FAILED`
+
+## NPM Scripts
+
+- `npm run dev` - start local dev server
+- `npm run build` - generate Prisma client and build app
+- `npm run start` - run production server
+- `npm run lint` - run ESLint
+
+## Notes
+
+- In-memory rate limiting is intended for demo/single-instance usage.
+- The `app/api/evaluations/` directory is currently present but empty.
+
+## Suggested Next Improvements
+
+- Persist chat sessions and document collections per user
+- Add citation jump-to-page PDF preview
+- Add automated RAG evaluation routes and dashboards
 
